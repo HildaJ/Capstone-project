@@ -5,13 +5,15 @@
 *net install sg67_1 // the installation of univar
 *net install grc1leg, from(http://www.stata.com/users/vwiggins) // Combine graph
 *ssc install mrtab
+*ssc install outreg2
 **************************************************************************
-              /* Last updated: 7 July ‎2021*/
+              /* Last updated: 20 July ‎2021*/
 **************************************************************************
 clear
 clear matrix
-set maxvar 6000
+clear mata
 
+set maxvar 6000
 cd "D:\Univerisity of Melbourne\HILDA survey\ADA\2. STATA 190c (Zip File 1 of 2 - Combined Data Files)"
 
 use "Combined_i190c.dta", clear
@@ -60,6 +62,8 @@ quietly tab phi_binary, gen(phi_binary) // Create dummy variables
 rename phi_binary1 phi_no
 rename phi_binary2 phi_yes
 
+label variable phi_yes "With Cover"
+
 gen phi_type =. // PHI type
 replace phi_type = 1 if phctype == 1 // Hospital cover only
 replace phi_type = 2 if phctype == 2 // Extras cover only
@@ -73,18 +77,22 @@ rename phi_type3 phitype_both
 					**************
 					* Group them *
 					**************
-
+					
 gen phi_status = .
 replace phi_status = 0 if phpriin == 2 // Without Cover
 replace phi_status = 1 if phctype == 1 // Hospital
 replace phi_status = 2 if phctype == 2 // Extras
 replace phi_status = 3 if phctype == 3 // Both
 label value phi_status phistatus
-quietly tab phi_status, gen(phistatus_cat)
+qui tab phi_status, gen(phistatus_cat)
 rename phistatus_cat1 WithoutCover
 rename phistatus_cat2 HospitalCover
 rename phistatus_cat3 ExtrasCover
 rename phistatus_cat4 BothCover
+
+label variable ExtrasCover "Extras Cover"
+label variable HospitalCover "Hospital Cover"
+label variable BothCover "Both Covers"
 
 **************************************************************
                  /* Dependent varaibles */
@@ -269,44 +277,45 @@ graph bar phistatus_no phistatus_hos phistatus_ex phistatus_both, over(he_empcat
 	legend(label (1 "Without Cover") label (2 "Hospital cover only") label (3 "Extras cover only ") label (4 "Both hospital and extras cover"))  ///
 	note("PHI = Private Health Insurance")
 
-
+*/
 	
 	
 * Physical or Mental measurement *
-replace pdk10s =. if pdk10s < 0 // K10 score, continuous
+gen k10 =.
+replace k10 = pdk10s if pdk10s >= 0 & pdk10s <. // K10 score, continuous
+gen k10_cat =.
+replace k10_cat = pdk10rc if pdk10rc >= 0 & pdk10rc <. // K10 risk categories
 
-replace pdk10rc =. if pdk10rc < 0 // K10 risk categories
-tabulate pdk10rc, gen(pdk10rc) // Create dummy variables
-*/
-
+egen k10_mean = mean(k10)
+gen k10_binary =.
+replace k10_binary = 1 if k10 >= k10_mean & k10 <.
+replace k10_binary = 0 if k10 < k10_mean
 
 * SF-6D/SF36
-
 gen sf6d = ghsf6ap - ghsf6an if ghsf6ap >= 0 // Australian weights
 
 *Self-assessed health (SAH) P.S drop gh1, because of small sample size
 gen sah =.
-replace sah = 1 if herate == 1
-replace sah = 2 if herate == 2
+replace sah = 1 if herate == 5
+replace sah = 2 if herate == 4
 replace sah = 3 if herate == 3
-replace sah = 4 if herate == 4
-replace sah = 5 if herate == 5
-
-label define sahl 1 "Excellent" 2 "Very good" 3 "Good" 4 "Fair" 5 "Poor"
-label value sah sahl
-
+replace sah = 4 if herate == 2
+replace sah = 5 if herate == 1
+label define sahl 1 "Poor" 2 "Fair" 3 "Good" 4 "Very good"  5 "Excellent"
+label value sah sahl 
 qui tab sah, gen(sah)
 rename (sah1 sah2 sah3 sah4 sah5) (sah_ex sah_vgood sah_good sah_fair sah_poor)
 
+gen sah_binary =.
+replace sah_binary = 0 if sah <=3
+replace sah_binary = 1 if sah >3  & sah <.
+label define sah_binaryl 1 "Excellent/Vgood" 0 "Good/Fair/Poor"
+label value sah_binary sah_binaryl
+
 * Which ones?
-
 * hetosch // need additional time off school / study
-
 * Long term health condition/disability/impairment from PQ
-* helth
-
 * Type of disability
-
 * Whether has disability / health condition
 
 
@@ -314,7 +323,7 @@ rename (sah1 sah2 sah3 sah4 sah5) (sah_ex sah_vgood sah_good sah_fair sah_poor)
 				
 * Doctor and hospital visits * 
 
-gen dentist = .
+gen dentist =.
 replace dentist = 1 if hedent == 1 // How long since last saw a dentist
 replace dentist = 2 if hedent == 2
 replace dentist = 3 if hedent == 3
@@ -324,13 +333,13 @@ replace dentist = 8 if hedent == 8
 quietly tabulate dentist, gen(dentist)
 rename (dentist1 dentist2 dentist3 dentist4 dentist5 dentist6) (dentist0_6 dentist6_12 dentist1_2 dentist2_5 dentist5_more dentist_never)
 
-gen gpclinic = .
+gen gpclinic =.
 replace gpclinic = 1 if hegpc == 1 // Sees a particular GP or clinic
 replace gpclinic = 0 if hegpc == 2 
 label value gpclinic isbinary
 
-gen gpn = hegpn
-replace gpn = . if hegpn < 0 // Number of doctor visits
+gen gpn =.
+replace gpn = hegpn if hegpn >= 0 // Number of doctor visits
 xtile gpn_cat = gpn, nq(5)
 label value gpn_cat quintile
 
@@ -353,23 +362,25 @@ replace hehnn_cat = 5 if hehnn == 5
 replace hehnn_cat = 6 if hehnn == 6
 replace hehnn_cat = 7 if hehnn >= 7 & hehnn <.
 label define hsngs_catl 0 "0" 1 "1" 2 "2" 3 "3" 4 "4" 5 "5" 6 "6" 7 "7+"
-label value hehnn_cat hsng_catl
+label value hehnn_cat hsngs_catl
 
-gen nightstay = phrecad
-replace nightstay = . if phrecad < 0 // Overnight stays for most recent overnight admission to hospital
-xtile phrecad_5 = phrecad, nq(5)
+gen nightstay = .
+replace nightstay = phrecad if phrecad >= 0 // Overnight stays for most recent overnight admission to hospital
+xtile phrecad_5 = nightstay, nq(5)
 label value phrecad_5 quintile
 
-gen dayptype= phdayin
-replace dayptype =. if phdayin < 0 // Hospital day patient admission type
-quietly tab dayptype, gen(dayptype)
+gen dayptype =.
+replace dayptype = phdayin if phdayin > 0 // Hospital day patient admission type
+qui tab dayptype, gen(dayptype)
 rename dayptype1 day_pubpatient
 rename dayptype2 day_pri_pripatient
 rename dayptype3 day_pri_pubpatient
 rename dayptype4 day_other
+label define dayptypel 1 "Public patient" 2 "Private patients private hospital" 3 "Private patients public hospital" 8 "Other"
+label value dayptype dayptypel
 
-gen nightptype = phonin
-replace nightptype =. if phonin < 0 // Hospital overnight patient admission type
+gen nightptype =.
+replace nightptype = phonin if phonin >= 0 // Hospital overnight patient admission type
 quietly tab nightptype, gen(nightptype)
 rename nightptype1 night_pubpatient
 rename nightptype2 night_pri_pripatient
@@ -419,6 +430,9 @@ label variable med_hbp "High blood pressure or hypertension"
 
 * OOP expenditure/ GPs/ PHI/specialists/ dentists / https://www.publish.csiro.au/ah/fulltext/AH18191
 
+* Quarterly Private Health Insurance Statistics https://www.apra.gov.au/sites/default/files/2020-08/Quarterly%20Private%20health%20insurance%20statistics%20June%202020.pdf
+
+* Whether there is difference in fees by phi type
 
 /// H4: financial stress ///
 * financial stressors *
@@ -462,12 +476,12 @@ label value fs_bill isbinary
 					* Factor analysis*
 					******************
 					
-quietly describe fs_*
-quietly sum fs_*
-quietly factor fs_*
-quietly rotate
-quietly predict fa1_bill fa2_living fa3_unkown
-quietly sum fa1_bill fa2_living fa3_unkown
+qui describe fs_*
+qui sum fs_*
+qui factor fs_*
+qui rotate
+qui predict fa1_bill fa2_living fa3_unkown
+qui sum fa1_bill fa2_living fa3_unkown
 
 
 ******************************************************************
@@ -579,6 +593,9 @@ label value age_cat agel //
 gen age_squared = .
 replace age_squared = hgage * hgage if hgage >=18 & hgage <.
 
+label variable hgage "Age"
+label variable age_squared "Age squared"
+
 * Sex
 gen sex = .
 replace sex = 1 if hgsex == 1
@@ -588,15 +605,23 @@ label value sex genderl
 gen Male = sex
 
 * SEIFA 
-qui tab hhsad10, gen(seifa)
+gen seifa = hhsad10
+qui tab seifa, gen(seifa)
 
 * Household Income
 * see Appendix in Wilkins (2014) 'Derived income variables in the HILDA survey' for explanation *
-
 gen total_hinc =  hifeftp - hifeftn // 	household level gross total income
 rename total_hinc income
 xtile income_100 = income, nq(100)
+xtile income_5 = income, nq(5)
+tab income_5, gen(income_5)
+rename (income_51 income_52 income_53 income_54 income_55) (Vlowincome	Lowincome Mediumincome Highincome Vhighincome)
 
+label variable Vlowincome "Very low ncome"
+label variable Lowincome "Low income"
+label variable Mediumincome "Medium income"
+label variable Highincome "High income"
+label variable Vhighincome "Very high income"
 
 * Marital status
 gen marital_status = .
@@ -610,46 +635,63 @@ label value marital_status maritall
 qui tab marital_status, gen(marital_status)
 rename (marital_status1 marital_status2 marital_status3 marital_status4 marital_status5) (Married Defacto SeparatedDivorced Widowed NeverMarriedDefacto)
 
+label variable Married "Married"
+label variable Defacto "De facto"
+label variable SeparatedDivorced "Separated/Divorced"
+label variable NeverMarriedDefacto "Never Married"
+label variable Widowed "Widowed"
+
+	** Missing values **
+	replace Married = 0 if Married != 1
+	replace Defacto = 0 if Defacto != 1
+	replace SeparatedDivorced = 0 if SeparatedDivorced != 1
+	replace Widowed = 0 if Widowed != 1
+	replace NeverMarriedDefacto =0 if NeverMarriedDefacto != 1
+	
+	gen marital_missing = .
+	replace marital_missing = 1 if mrcurr < 0
+	replace marital_missing = 0 if mrcurr > 0 & mrcurr <.
+
 ******************
 **  EMPLOYMENT  **
 ******************
 
 * Employment/ Labour force status
-
-replace esbrd = . if esbrd < 0 | hgage >65 // DV: Current labour force status - broad
-replace esdtl = . if esdtl < 0 | hgage > 65	// labour forece status - detail
-gen labour_status =.
-replace labour_status = 1 if esdtl == 1
-replace labour_status = 2 if esdtl == 2
-replace labour_status = 3 if esdtl == 3 | esdtl == 4
-replace labour_status = 4 if esdtl == 5 | esdtl == 6
-replace labour_status = 5 if esdtl == 7
-label define labourl 1 "Employed FT" 2 "Employed PT" 3 "Unemployed" 4 "Not in the labour force" 5 "Employed but unkown usual work hours"
-label value labour_status labourl
-
-
-replace es = . if es < 0 | hgage > 65 // Current employment status (ABS defined)
-replace esempst = . if esempst < 0 | hgage > 65 // Current employment status
-
-
-replace esempdt = . if esempdt < 0 | hgage > 65 // employment status
-gen employment_status =.
-replace employment_status = 1 if esempdt == 1
-replace employment_status = 2 if esempdt == 2 | esempdt == 3
-replace employment_status = 3 if esempdt == 4 | esempdt == 5
-replace employment_status = 4 if esempdt == 6
+gen employment_status = . // Current employment status
+replace employment_status = 1 if esempst == 1 & hgage <= 65
+replace employment_status = 2 if esempst == 2 & hgage <= 65
+replace employment_status = 3 if esempst == 3 & hgage <= 65
+replace employment_status = 4 if esempst == 4 & hgage <= 65
 label define employmentl 1 "Employee" 2 "Employee of own business" 3 "Employer/Self-employed" 4 "Unpaid family worker"
 label value employment_status employmentl
-
-
 qui tab employment_status, gen(employment_status)
 rename (employment_status1 employment_status2 employment_status3 employment_status4) (Employee Ownbusiness EmployerSelf Familyworker)
 
+label variable EmployerSelf "Employer/Self-employed"
+
+	** Missing values **
+	replace EmployerSelf = 0 if EmployerSelf != 1
+	replace Employee = 0 if Employee != 1
+	replace Ownbusiness = 0 if Ownbusiness != 1
+	replace Familyworker =0 if Familyworker != 1
+	
+	gen employment_missing = .
+	replace employment_missing = 1 if esempst < 0
+	replace employment_missing = 0 if esempst > 0
+	
 ************
-* Location *
+* Location *   Interesting but not our focus at current stage
 ************
-qui tab hhstate, gen(hhstate) // State
-rename (hhstate1 hhstate2 hhstate3 hhstate4 hhstate5 hhstate6 hhstate7 hhstate8) (NSW VIC QLD SA WA TAS NT ACT)
+qui tab hhstate, gen(state) // State
+rename (state1 state2 state3 state4 state5 state6 state7 state8) (NSW VIC QLD SA WA TAS NT ACT)
+
+label variable VIC "VIC"
+label variable QLD "QLD"
+label variable SA "SA"
+label variable WA "WAS"
+label variable TAS "TAS"
+label variable NT "NT"
+label variable ACT "ACT"
 
 gen remote =. // Areas
 replace remote = 0 if hhra == 0
@@ -660,9 +702,15 @@ label value remote remotel
 qui tab remote, gen (remote)
 rename (remote1 remote2 remote3 remote4) (MajorCity InnerRegion OuterRegional Remote)
 
-replace hhda10 = . if hhda10 < 0
-replace edfts = . if edfts < 0
-replace edagels = . if edagels < 0
+label variable MajorCity "Major City"
+label variable InnerRegion "Inner Region"
+label variable OuterRegional "Outer Region"
+label variable Remote "(Very) Remote"
+
+
+*************
+* Education *
+*************
 
 * This division refers to Terence Chai Cheng's 'Measuring the effects of removing subsidies for private insurance on public expenditure for health care'*
 gen edu = .
@@ -672,12 +720,32 @@ replace edu = 3 if edhigh1 == 4 // highest qual. is a (Advanced) Diploma
 replace edu = 4 if edhigh1 == 3 | edhigh1 == 2 | edhigh1 == 1 // highest qual. is a degree or above
 label define edul 1 "School" 2 "Certificate" 3 "Dipl/ Adv Dipl" 4 "Bach. above" 
 label value edu edul
-
 qui tab edu, gen(edu) 
 rename (edu1 edu2 edu3 edu4) (School Certificate Dipl Bach)
 
+label variable School "Year 12 or below"
+label variable Certificate "Certificate"
+label variable Dipl "(Advanced) Diploma"
+label variable Bach "Bachelor or above"
 
-tab es, gen(es)
-tab esempdt
-tab esempst, gen(esempst)
-rename esempst3 selfemployed
+	** Missing values**
+	replace School = 0 if School != 1
+	replace Certificate = 0 if Certificate != 1
+	replace Dipl = 0 if Dipl != 1
+	replace Bach = 0 if Bach != 1
+	
+	gen edu_missing = .
+	replace edu_missing = 1 if edhigh1 < 0 | edhigh1 == 10
+	replace edu_missing = 0 if edhigh1 > 0 & edhigh1 < 10
+
+/*
+*Descriptive analysis*
+* Why there is error message ""
+* https://bbs.pinggu.org/thread-2813781-1-1.html
+
+asdoc sum sf6d Male ExtrasCover HospitalCover BothCover ///
+VIC QLD SA WA TAS NT ACT MajorCity InnerRegion OuterRegional /// reference: NSW, Remote
+Lowincome Mediumincome Highincome Vhighincome /// Vlowincome
+Certificate School Dipl Bach edu_missing /// school
+Defacto SeparatedDivorced Widowed NeverMarriedDefacto marital_missing /// married
+EmployerSelf employment_missing, save(Descriptive analysis.doc) stat(mean sd) title(Table 1: ) abb(.) replace
